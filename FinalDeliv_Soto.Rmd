@@ -1,0 +1,297 @@
+---
+title: "Amazon Fine Food Reviews Sentiment Analysis"
+author: "Cristian Santiago Soto"
+date: "April 22, 2026"
+output:
+  html_document: default
+---
+
+```{r}
+reviews <- read.csv("Reviews.csv")
+```
+
+
+
+## Libraries Used
+```{r}
+library(tidyverse)
+library(tidytext)
+library(ggplot2)
+```
+
+## Summary
+The goal of this project was to analyze customer reviews from the Amazon Fine Food Reviews dataset and understand how written sentiment relates to star ratings. The data was cleaned and processed by focusing on the Score and Text variables, and sentiment analysis was performed using the Bing lexicon to classify words as positive or negative.
+
+From the analysis, it was found that reviews with higher star ratings contain more positive language, while lower ratings contain more negative words. The results also show that most reviews are positive, with many ratings falling between 4 and 5 stars. 
+
+
+## Purpose
+The purpose of this project is to analyze customer reviews and determine how the language used in written reviews relates to the star ratings given by customers. The main question is whether sentiment in the text can help explain or reflect the rating of a product.
+
+## Data
+
+| Variable | Description | Type |
+|----------|-------------|------|
+| Id | Unique identifier for each review | Numerical |
+| ProductId | Unique identifier for the product | Categorical |
+| UserId | Unique identifier for the reviewer | Categorical |
+| ProfileName | Name of the user who left the review | Categorical |
+| HelpfulnessNumerator | Number of users who found the review helpful | Numerical |
+| HelpfulnessDenominator | Total number of users who rated the review | Numerical |
+| Score | Star rating given by the customer (1–5) | Numerical |
+| Time | Timestamp of when the review was posted | Numerical (time) |
+| Summary | Short summary of the review | Categorical (text) |
+| Text | Full written review content | Categorical (text) |
+
+```{r}
+head(reviews)
+colnames(reviews)
+dim(reviews)
+```
+The dataset contains over 300,000 reviews and multiple variables describing each review. Each row represents a single customer review, while each column represents information about that review such as the rating, product information, and written text.
+
+The dataset contains multiple variables describing each customer review, including product information, user details, ratings, and written feedback. 
+
+For this analysis, the most important variables are Score and Text , the main goal is to study sentiment in written reviews and compare it to the numerical rating given by customers. The Summary gives a quick idea of the review, but I focused on the full text since it has more detail and better shows the customer’s opinion. Other variables such as ProductId, UserId, and Helpfulness scores were not used in this analysis because they do not help with measuring sentiment in the text.
+
+
+## Data cleaning 
+
+```{r}
+
+reviews <- read.csv("Reviews.csv")
+
+reviews_clean <- reviews %>%
+  select(Score, Text) %>%
+  mutate(Text = gsub("<[^>]+>", "", Text)) %>%
+  filter(!is.na(Text)) %>%
+  filter(!is.na(Score)) %>%
+  filter(Score >= 1 & Score <= 5)
+
+nrow(reviews_clean)
+```
+The dataset was cleaned before starting the analysis, and only the Score and Text variables were kept because they are the most useful for studying sentiment in the reviews. HTML tags were removed from the review text using gsub(), which helps eliminate unwanted formatting and makes sure that only readable text is analyzed. 
+
+Any rows with missing values in the Score or Text columns were removed to prevent errors and ensure the analysis is based on complete data. For example, a review that has a star rating but no written text, or a review with text but no rating, would have been removed. In addition, Only reviews with valid star ratings between 1 and 5 were kept.
+
+
+
+## Exploratory Data Analysis 
+
+```{r}
+set.seed(40)
+
+reviews_sample <- reviews_clean %>%
+  sample_n(10000)
+nrow(reviews_sample)
+```
+
+```{r}
+reviews_sample <- reviews_sample %>%
+  mutate(review_id = row_number())
+
+words <- reviews_sample %>%
+  unnest_tokens(word, Text)
+head(words)
+```
+A sample of 10,000 reviews was taken to make the analysis more manageable.
+```{r}
+data("stop_words")
+
+words_clean <- words %>%
+  anti_join(stop_words, by = "word")
+head(words_clean)
+```
+
+```{r}
+sentiment_words <- words_clean %>%
+  inner_join(get_sentiments("bing"), by = "word")
+head(sentiment_words)
+```
+
+```{r}
+sentiment_counts <- sentiment_words %>%
+  group_by(review_id, Score, sentiment) %>%
+  summarise(count = n())
+
+head(sentiment_counts)
+```
+
+```{r}
+sentiment_score <- sentiment_counts %>%
+  pivot_wider(names_from = sentiment,
+              values_from = count,
+              values_fill = 0) %>%
+  mutate(sentiment_score = positive - negative)
+
+
+head(sentiment_score)
+```
+A sentiment score was calculated by subtracting negative word counts from positive word counts.
+```{r}
+avg_sentiment <- sentiment_score %>%
+  group_by(Score) %>%
+  summarise(
+    avg_score = mean(sentiment_score),
+    count = n()
+  )
+
+print(avg_sentiment)
+```
+The average sentiment score was calculated for each star rating to analyze how sentiment changes across ratings.
+
+
+```{r}
+reviews_sample$Score <- as.numeric(reviews_sample$Score)
+ggplot(reviews_sample, aes(x = Score)) +
+  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
+  labs(
+    title = "Distribution of Star Ratings",
+    x = "Star Rating",
+    y = "Number of Reviews"
+  ) +
+  theme_minimal()
+```
+
+
+
+The histogram shown above shows the statistics for how the star ratings are distributed in the dataset. The ratings rage from 1 star to 5 stars, with most of them coming as higher ratings such as 4 to 5 stars. This shows that many customers leave positive reviews for the things they purchase through amazon Fresh.
+
+
+```{r}
+ggplot(avg_sentiment, aes(x = factor(Score), y = avg_score, fill = factor(Score))) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c(
+    "red","orange","gold","lightgreen", "darkgreen"
+  )) +
+  labs(
+    title = "Average Sentiment Score by Star Rating",
+    subtitle = "Amazon FFR (Sample of 10,000)",
+    x = "Star Rating",
+    y = "Average Sentiment Score",
+    fill = "Stars"
+  ) +
+  theme_minimal()
+```
+
+
+The bar chart shows how sentiment changes across different star ratings. The variables used here are the star rating (Score) and the calculated sentiment score based on positive and negative words (Bing Lexicon). The graph shows that higher ratings have more positive sentiment, while lower ratings have more negative sentiment. This shows that the tone of the reviews generally matches the rating given by the customer.
+
+
+```{r}
+summary(reviews$Score)
+
+```
+
+```{r}
+top_words <- sentiment_words %>%
+  count(word, sentiment, sort = TRUE) %>%
+  group_by(sentiment)%>%
+  slice_max(n, n = 10 )
+
+
+
+ggplot(top_words, aes(x=reorder(word,n ), y = n, fill =sentiment))+
+  geom_bar(stat = "identity") + 
+  coord_flip()+
+  scale_fill_manual(values = c("negative"= "red", "positive"= "green"))+
+  labs(
+    title= "Top Positive and Negative Words", 
+    x= "Word" ,
+    y= "Count"
+  )+
+  theme_minimal()
+```
+
+
+
+The bar chart above shows the most common positive or negative words used in the reviews. The variables used were the sentiment, individual words and their frequency count. The results make it obvious that positive words like "love" and "favorite" in peoples reviews tend to have a higher star rating than negative words such as "smells" or "bitter". This also shows that people tend to align their tone with their reviews.
+
+
+```{r}
+reviews_sample %>%
+  count(Score) %>%
+  ggplot(aes(x = factor(Score), y = n, fill = factor(Score))) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("red","orange","gold","lightgreen","darkgreen")) +
+  labs(
+    title = "Number of Reviews per Star Rating",
+    x = "Star Rating",
+    y = "Number of Reviews"
+  ) +
+  theme_minimal()
+```
+
+
+
+This bar graph above shows the number of reviews left by customers based on their rating. As you can see, customers are more likely to leave a review when they like the product. The variables used were star ratings (score) and the count of reviews. 
+
+```{r}
+sentiment_category <- sentiment_score %>%
+  mutate(category = ifelse(sentiment_score >= 0, "Positive", "Negative"))
+
+sentiment_category %>%
+  count(category) %>%
+  ggplot(aes(x = category, y = n, fill = category)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Positive" = "green", "Negative" = "red")) +
+  labs(
+    title = "Number of Positive vs Negative Reviews",
+    x = "Sentiment Category",
+    y = "Number of Reviews"
+  ) +
+  theme_minimal()
+```
+
+
+The bar chart shows the number of positive and negative reviews based on the sentiment score. The variables used are the sentiment score and the count of reviews. Reviews were classified as positive if the sentiment score was greater than or equal to zero, and negative if it was less than zero. The results show that there are more positive reviews than negative ones, which supports the idea that most Amazon Fresh customers leave positive feedback.
+
+
+## Dataset Dimensions
+```{r}
+dim(reviews)
+```
+The dataset contains over 300,000 reviews and multiple variables describing each review. Each row represents a single customer review, while each column represents information about that review such as the rating, product information, and a written text review.
+
+
+
+
+
+
+
+## Limitations of Sentiment Analysis
+
+One limitation of using a sentiment dictionary is that it does not take context into account. Words are classified as positive or negative on their own, without considering the tone in which they are used in a sentence.
+
+For example, the word “smells” is labeled as negative in the Bing lexicon. However, a sentence like “this smells great” shows the overall meaning is positive. The model would count “smells” as negative and “great” as positive, which could incorrectly balance the sentiment. Another example of this would be a sentence like “this product is not great.” The word “great” would still be counted as positive even though its a negative review.
+
+Another issue comes up when both positive and negative words are used in the same sentence. For instance, a review like “I love this product so much I’m starting to hate this other one” contains both “love” (positive) and “hate” (negative). A dictionary-based method may treat this as mixed or neutral sentiment, even though the main opinion about the product is clearly positive.
+
+
+
+
+## Discussion
+
+The Amazon Fine Food Reviews dataset provides useful insight into how written customer feedback can relate to the star ratings that customers leave. After cleaning the dataset and selecting the most relevant variables, a sample of 10,000 reviews was taken to do the analysis. The review text was broken down into individual words and compared with the Bing sentiment lexicon to identify whether words were positive or negative. This allowed a sentiment score to be calculated for each single review.
+
+From the results, reviews with higher star ratings generally contain more positive language, while lower ratings tend to contain more negative words. The histogram also shows that most reviews fall between four and five stars, suggesting that customers often leave positive feedback for food products. There is a possibility that there are some people who are sponsored to leave a  good review so I think it would be interesting to find a way to pick out normal everyday people and see what they really have to say.
+
+
+
+## Results
+
+Based on the graphs and analysis, it shows a clear relationship between customer ratings and the language used in reviews. Reviews with higher star ratings usually contain more positive words, while lower ratings use  more negative language. The data also shows that most reviews fall between 4 and 5 stars, which suggests that customers generally leave positive feedback.
+
+Looking at the word analysis, positive reviews often include words that show satisfaction like "love," "favorite," great, and "perfect," while negative reviews focus more on problems or complaints using words like “bitter,” “disappointed,” and “awful,”. This helps show how sentiment analysis can give a better understanding of what customers actually think about the products based on how they describe their experience.
+
+## Conclusions
+The analysis shows a clear relationship between the sentiment of a review and the star rating given by the customer. Reviews that use more positive words usually have higher ratings, while reviews with more negative language tend to have lower ratings.
+
+One limitation of this analysis is that the sentiment method does not consider context, which can sometimes lead to incorrect results. In the future, more advanced methods could be used to better understand full sentences instead of just individual words.
+
+
+## References 
+Amazon Fine Food Reviews Dataset (Kaggle)
+Bing Sentiment Lexicon
+
+
